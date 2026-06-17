@@ -131,6 +131,29 @@ def parse_datetime(text):
     raise ValueError(f"Could not understand the date/time '{text}'.")
 
 
+def parse_when(text, end=False, default_date=None):
+    """Parse a clock time (HH:MM / HH:MM:SS) or a full date(+time).
+
+    A clock-only value uses default_date (or today). When end=True, an HH:MM
+    upper bound expands to the end of that minute (:59.999999).
+    """
+    text = text.strip()
+    local_tz = datetime.now().astimezone().tzinfo
+    base = default_date or datetime.now().astimezone()
+    if base.tzinfo is None:
+        base = base.replace(tzinfo=local_tz)
+    for fmt in ("%H:%M:%S", "%H:%M"):
+        try:
+            t = datetime.strptime(text, fmt)
+            sec, micro = t.second, 0
+            if end and fmt == "%H:%M":
+                sec, micro = 59, 999999
+            return base.replace(hour=t.hour, minute=t.minute, second=sec, microsecond=micro)
+        except ValueError:
+            continue
+    return parse_datetime(text)
+
+
 # ---------------------------------------------------------------------------
 # Interactive input
 # ---------------------------------------------------------------------------
@@ -330,6 +353,22 @@ async def menu_delete_range(client):
     to_dt = parse_date(ask("To date (e.g. 16/6)"), end_of_day=True)
     if from_dt > to_dt:
         print("Start date is after end date - cancelled.")
+        return
+    only_mine = ask_yes_no("Only your own messages?", default=False)
+    ids, dates, scanned = await collect_message_ids(client, entity, from_dt, to_dt, only_mine)
+    await _preview_and_delete(client, entity, ids, dates, scanned)
+
+
+async def menu_delete_time_range(client):
+    print("\n- Delete messages between two times (precise) -")
+    entity = await ask_chat(client)
+    print("Tip: type a clock time like 14:00, or a full date+time like 2026-06-10 14:00.")
+    day = ask("Date for clock-only times (empty = today)", default="")
+    base = parse_date(day) if day else None
+    from_dt = parse_when(ask("From (e.g. 14:00)"), default_date=base)
+    to_dt = parse_when(ask("To (e.g. 18:30)"), end=True, default_date=base)
+    if from_dt > to_dt:
+        print("Start time is after end time - cancelled.")
         return
     only_mine = ask_yes_no("Only your own messages?", default=False)
     ids, dates, scanned = await collect_message_ids(client, entity, from_dt, to_dt, only_mine)
@@ -595,23 +634,24 @@ async def menu_schedule(client):
 MENU = [
     ("DELETE TOOLS", None),
     ("1", "Delete messages in a date range", menu_delete_range),
-    ("2", "Delete the last N messages", menu_delete_last_n),
-    ("3", "Delete ALL messages in a chat", menu_delete_all),
-    ("4", "Delete only my own messages", menu_delete_mine),
-    ("5", "Delete messages containing a keyword", menu_delete_keyword),
+    ("2", "Delete messages between two times (precise)", menu_delete_time_range),
+    ("3", "Delete the last N messages", menu_delete_last_n),
+    ("4", "Delete ALL messages in a chat", menu_delete_all),
+    ("5", "Delete only my own messages", menu_delete_mine),
+    ("6", "Delete messages containing a keyword", menu_delete_keyword),
     ("BACKUP / EXPORT", None),
-    ("6", "Export a chat to a file (JSON + text)", menu_export),
-    ("7", "Download media from a chat", menu_download_media),
+    ("7", "Export a chat to a file (JSON + text)", menu_export),
+    ("8", "Download media from a chat", menu_download_media),
     ("SEARCH / BROWSE", None),
-    ("8", "Search messages by keyword", menu_search),
-    ("9", "List / search chats", menu_list_chats),
-    ("10", "Chat statistics", menu_stats),
-    ("11", "My account info", menu_account_info),
+    ("9", "Search messages by keyword", menu_search),
+    ("10", "List / search chats", menu_list_chats),
+    ("11", "Chat statistics", menu_stats),
+    ("12", "My account info", menu_account_info),
     ("SEND / FORWARD", None),
-    ("12", "Send a message (now or scheduled)", menu_send),
-    ("13", "Forward / save messages", menu_forward),
+    ("13", "Send a message (now or scheduled)", menu_send),
+    ("14", "Forward / save messages", menu_forward),
     ("AUTOMATION", None),
-    ("14", "Set up scheduled auto-cleanup (Windows)", menu_schedule),
+    ("15", "Set up scheduled auto-cleanup (Windows)", menu_schedule),
 ]
 ACTIONS = {item[0]: item[2] for item in MENU if item[1] is not None}
 
